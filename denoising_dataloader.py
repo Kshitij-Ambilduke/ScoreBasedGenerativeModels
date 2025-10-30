@@ -5,6 +5,8 @@ import pandas as pd
 import torch
 import random
 
+# TO DO: Add sigma to the training sample. So the new sample will be (original_image, noisy_image, sigma_index)
+
 class MakeNoisySamples:
     def __init__(self, sigmas):
         self.sigmas = sigmas
