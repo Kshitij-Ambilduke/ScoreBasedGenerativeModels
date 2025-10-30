@@ -177,6 +177,7 @@ class CondRefineNet(nn.Module):
                  L):
         super().__init__()
 
+        self.in_planes = in_planes
         #in_planes = list of Channels for each of the plane
         self.AdaptiveConv = nn.ModuleList()
         for i in range(len(in_planes)):
@@ -211,7 +212,10 @@ class CondRefineNet(nn.Module):
             h_s.append(h)
         
         # Multi-resolution fusion
-        h = self.MRF(h_s, sigma_index, output_shape)
+        if len(self.in_planes)==1:
+            h = h_s[0]
+        else:
+            h = self.MRF(h_s, sigma_index, output_shape)
 
         # Chained residual pooling
         h = self.CRP(h, sigma_index)
