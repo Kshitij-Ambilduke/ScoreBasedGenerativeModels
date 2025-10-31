@@ -22,30 +22,43 @@ def load_data(allowed_classes=[1,2,3], split="train", sigma_1=1.0, sigma_L=0.01,
     return dataloader, sigmas
 
 def main():
+    total_steps = 10000
     dataloader, sigmas = load_data()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CondRefineNetDilated(input_channels=1, L=10, ngf=64)
+    model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    for batch in dataloader:
+    steps = 0
+    epoch_steps = 0
+    steps_list = []
+    while steps<total_steps:
+        epoch_loss = 0.0
+        for batch in dataloader:
+            steps += 1 
+            original = batch["original"].to(device)
+            noisy = batch["noisy"].to(device)
+            sigma_index = batch["sigma_index"].to(device)
 
-        original = batch["original"]
-        noisy = batch["noisy"]
-        sigma_index = batch["sigma_index"]
+            optimizer.zero_grad()
+            outputs = model(noisy, sigma_index)
+            sigmas_batch = torch.tensor([sigmas[i] for i in sigma_index])
+            sigmas_batch = sigmas_batch.unsqueeze(1).unsqueeze(2).unsqueeze(3).to(device)
 
-        optimizer.zero_grad()
-        outputs = model(noisy, sigma_index)
-        sigmas_batch = torch.tensor([sigmas[i] for i in sigma_index])
-        sigmas_batch = sigmas_batch.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+            loss = sigmas_batch*outputs + (noisy - original)/sigmas_batch
+            loss = (loss**2).sum(dim=[1, 2, 3])
+            loss = 0.5 * loss.mean()        
+            loss.backward()
+            optimizer.step()
 
-        loss = sigmas_batch*outputs + (noisy - original)/sigmas_batch
-        loss = (loss**2).sum(dim=[1, 2, 3])
-        loss = 0.5 * loss.mean()        
-        loss.backward()
-        optimizer.step()
-        
-        print("Loss:", loss.item())
+            print("Loss:", loss.item())
+            epoch_loss += loss.item()
+            steps_list.append(steps)
+            
+        epoch_loss /= len(dataloader)
+        epoch_steps += 1
+        print(f"Epoch Steps: {epoch_steps}, Average Loss: {epoch_loss}")
 
 if __name__ == "__main__":
     main()
-        

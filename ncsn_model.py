@@ -11,6 +11,44 @@ def dilated_conv3x3(in_planes, out_planes, dilation, bias=True):
 
 ####################### REFINE NET BACKBONE STARTS HERE ####################################
 
+## For testing ##
+# class CondInstanceNorm2d_plus(nn.Module):
+#     def __init__(self, C, L, bias=True):
+#         super().__init__()
+#         self.C = C
+#         self.bias = bias
+#         self.instance_norm = nn.InstanceNorm2d(C, affine=False, track_running_stats=False)
+#         if bias:
+#             self.embed = nn.Embedding(L, C * 3)
+#             self.embed.weight.data[:, :2 * C].normal_(1, 0.02)  # Initialise scale at N(1, 0.02)
+#             self.embed.weight.data[:, 2 * C:].zero_()  # Initialise bias at 0
+#         else:
+#             self.embed = nn.Embedding(L, 2 * C)
+#             self.embed.weight.data.normal_(1, 0.02)
+
+#     def forward(self, x, y):
+#         means = torch.mean(x, dim=(2, 3))                # B x C - Mean of each channel
+#         m = torch.mean(means, dim=-1, keepdim=True)      # B x 1 - Mean of (Mean of each channel)
+#         v = torch.var(means, dim=-1, keepdim=True)       # B x 1 - Variance of (Mean of each channel)
+#         means = (means - m) / (torch.sqrt(v + 1e-5))    # B x C - Normalized mean of each channel
+#         h = self.instance_norm(x)                       # B x C x H x W
+
+#         # CORRECTION HERE: THE FORMULA BEING IMPLEMENTED IS:
+#         # out = gamma * (InstanceNorm + (alpha * means)) + beta
+#         #     = gamma * instanceNorm + (GAMMA * alpha * means) + beta
+#         #
+#         # THE FORMULA IN THE PAPER IS:
+#         # out = gamma * InstanceNorm + (alpha * means) + beta
+#         if self.bias:
+#             gamma, alpha, beta = self.embed(y).chunk(3, dim=-1)
+#             h = h + means[..., None, None] * alpha[..., None, None]
+#             out = gamma.view(-1, self.C, 1, 1) * h + beta.view(-1, self.C, 1, 1)
+#         else:
+#             gamma, alpha = self.embed(y).chunk(2, dim=-1)
+#             h = h + means[..., None, None] * alpha[..., None, None]
+#             out = gamma.view(-1, self.C, 1, 1) * h
+#         return out
+
 class CondInstanceNorm2d_plus(nn.Module):
     def __init__(self, L, C):
         super().__init__()
@@ -52,7 +90,7 @@ class CondInstanceNorm2d_plus(nn.Module):
 
 
 class CondChainedResidualPooling(nn.Module):
-    def __init__(self, num_blocks, num_layers_per_block, in_channels, L):
+    def __init__(self, num_blocks=1, num_layers_per_block=2, in_channels=64, L=10):
         super().__init__()
 
         self.num_blocks = num_blocks
@@ -60,7 +98,10 @@ class CondChainedResidualPooling(nn.Module):
 
         self.norm_layers = nn.ModuleList()
         for i in range(num_blocks):
-            self.norm_layers.append(CondInstanceNorm2d_plus(L, in_channels))
+            blocks = nn.ModuleList()
+            for j in range(num_layers_per_block):
+                blocks.append(CondInstanceNorm2d_plus(L, in_channels))
+            self.norm_layers.append(blocks)
         
         self.CRP_blocks = nn.ModuleList()
 
@@ -70,8 +111,8 @@ class CondChainedResidualPooling(nn.Module):
             for j in range(num_layers_per_block):
                 block_layers.append(
                     nn.Sequential(
-                    nn.MaxPool2d(kernel_size=5, stride=1, padding=2),
-                    conv3x3(in_channels=in_channels, out_channels=in_channels)
+                    nn.AvgPool2d(kernel_size=5, stride=1, padding=2),
+                    conv3x3(in_channels=in_channels, out_channels=in_channels, bias=False)
                     )
                 )
             self.CRP_blocks.append(block_layers)
@@ -82,8 +123,8 @@ class CondChainedResidualPooling(nn.Module):
         x = self.act(x)
         path = x
         for i in range(self.num_blocks):
-            path = self.norm_layers[i](path, sigma_index)
-            for layer in self.CRP_blocks[i]:
+            for j,layer in enumerate(self.CRP_blocks[i]):
+                path = self.norm_layers[i][j](path, sigma_index)
                 path = layer(path)
                 x = x + path
         return x
@@ -95,11 +136,14 @@ class CondResidualConvUnit(nn.Module):
 
         self.num_blocks = num_blocks
         self.num_layers_per_block = num_layers_per_block
-
-        self.norm_layers = nn.ModuleList()
-        for i in range(num_blocks):
-            self.norm_layers.append(CondInstanceNorm2d_plus(L=L, C=in_channels))
         
+        self.norms_layers = nn.ModuleList()
+        for i in range(num_blocks):
+            blocks = nn.ModuleList()
+            for j in range(num_layers_per_block):
+                blocks.append(CondInstanceNorm2d_plus(L=L, C=in_channels))
+            self.norms_layers.append(blocks)
+
         self.RCU = nn.ModuleList()
         for i in range(num_blocks):
             blocks = nn.ModuleList()
@@ -115,8 +159,8 @@ class CondResidualConvUnit(nn.Module):
     def forward(self, x, sigma_index):
         for i in range(self.num_blocks):
             residual = x
-            x = self.norm_layers[i](x, sigma_index)
-            for layer in self.RCU[i]:
+            for j,layer in enumerate(self.RCU[i]):
+                x = self.norms_layers[i][j](x, sigma_index)
                 x = layer(x)
             x = x + residual
         
@@ -124,48 +168,25 @@ class CondResidualConvUnit(nn.Module):
 
 
 class CondMultiResFusion(nn.Module):
-    def __init__(self, in_planes, num_layers, L, output_C):
+    def __init__(self, in_planes, output_C, L=10):
         super().__init__()
         
         self.in_planes = in_planes #list of Channels per plane
-        self.num_layers = num_layers
         self.output_C = output_C
 
-        self.norm_layers = nn.ModuleList()
-        for i in range(len(in_planes)):
-            self.norm_layers.append(CondInstanceNorm2d_plus(L=L, C=in_planes[i]))
-
+        self.norm_layers = nn.ModuleList()            
         self.MSF_layers = nn.ModuleList() #one per input -- ModuleList([ModuleList(), ModuleList(), ...])
         for i in range(len(in_planes)):
-            blocks = nn.ModuleList()
-            if num_layers==1: #if only one layer then in_channels --> out_channels directly
-                    blocks.append(
-                        nn.Sequential(
-                            conv3x3(in_channels=in_planes[i], out_channels=output_C)
-                        )
-                    )
-            else: #else (in_channels -> out_channels) -> (out_channels -> out_channels)^(n-1)
-                blocks.append(
-                        nn.Sequential(
-                            conv3x3(in_channels=in_planes[i], out_channels=output_C)
-                        )
-                    )
-                for j in range(num_layers-1):
-                    blocks.append(
-                        nn.Sequential(
-                            conv3x3(in_channels=output_C, out_channels=output_C)
-                        )
-                    )
-            self.MSF_layers.append(blocks)
+            self.MSF_layers.append(nn.Sequential(conv3x3(in_channels=in_planes[i], out_channels=output_C)))
+            self.norm_layers.append(CondInstanceNorm2d_plus(L=L, C=in_planes[i]))
                                     
     def forward(self, x_s, sigma_index, output_size):
         sum_x = torch.zeros(x_s[0].shape[0], self.output_C, *output_size, device=x_s[0].device)
         for i in range(len(self.in_planes)):
-            x_s[i] = self.norm_layers[i](x_s[i], sigma_index)
-            for layer in self.MSF_layers[i]:
-                x_s[i] = layer(x_s[i])
-            x_s[i] = nn.functional.interpolate(x_s[i], output_size, mode='bilinear', align_corners=True)
-            sum_x = sum_x + x_s[i]
+            h = self.norm_layers[i](x_s[i], sigma_index)
+            h = self.MSF_layers[i](h)
+            h = nn.functional.interpolate(h, output_size, mode='bilinear', align_corners=True)
+            sum_x = sum_x + h
         return sum_x
     
         
@@ -189,7 +210,7 @@ class CondRefineNet(nn.Module):
             )
         
         self.MRF = CondMultiResFusion(in_planes=in_planes,
-                                      num_layers=num_layers_per_MSF_block,
+                                    #   num_layers=num_layers_per_MSF_block,
                                       L=L,
                                       output_C=output_C_MSF)
         
