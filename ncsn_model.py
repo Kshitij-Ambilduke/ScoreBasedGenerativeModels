@@ -11,44 +11,6 @@ def dilated_conv3x3(in_planes, out_planes, dilation, bias=True):
 
 ####################### REFINE NET BACKBONE STARTS HERE ####################################
 
-## For testing ##
-# class CondInstanceNorm2d_plus(nn.Module):
-#     def __init__(self, C, L, bias=True):
-#         super().__init__()
-#         self.C = C
-#         self.bias = bias
-#         self.instance_norm = nn.InstanceNorm2d(C, affine=False, track_running_stats=False)
-#         if bias:
-#             self.embed = nn.Embedding(L, C * 3)
-#             self.embed.weight.data[:, :2 * C].normal_(1, 0.02)  # Initialise scale at N(1, 0.02)
-#             self.embed.weight.data[:, 2 * C:].zero_()  # Initialise bias at 0
-#         else:
-#             self.embed = nn.Embedding(L, 2 * C)
-#             self.embed.weight.data.normal_(1, 0.02)
-
-#     def forward(self, x, y):
-#         means = torch.mean(x, dim=(2, 3))                # B x C - Mean of each channel
-#         m = torch.mean(means, dim=-1, keepdim=True)      # B x 1 - Mean of (Mean of each channel)
-#         v = torch.var(means, dim=-1, keepdim=True)       # B x 1 - Variance of (Mean of each channel)
-#         means = (means - m) / (torch.sqrt(v + 1e-5))    # B x C - Normalized mean of each channel
-#         h = self.instance_norm(x)                       # B x C x H x W
-
-#         # CORRECTION HERE: THE FORMULA BEING IMPLEMENTED IS:
-#         # out = gamma * (InstanceNorm + (alpha * means)) + beta
-#         #     = gamma * instanceNorm + (GAMMA * alpha * means) + beta
-#         #
-#         # THE FORMULA IN THE PAPER IS:
-#         # out = gamma * InstanceNorm + (alpha * means) + beta
-#         if self.bias:
-#             gamma, alpha, beta = self.embed(y).chunk(3, dim=-1)
-#             h = h + means[..., None, None] * alpha[..., None, None]
-#             out = gamma.view(-1, self.C, 1, 1) * h + beta.view(-1, self.C, 1, 1)
-#         else:
-#             gamma, alpha = self.embed(y).chunk(2, dim=-1)
-#             h = h + means[..., None, None] * alpha[..., None, None]
-#             out = gamma.view(-1, self.C, 1, 1) * h
-#         return out
-
 class CondInstanceNorm2d_plus(nn.Module):
     def __init__(self, L, C):
         super().__init__()
@@ -210,7 +172,6 @@ class CondRefineNet(nn.Module):
             )
         
         self.MRF = CondMultiResFusion(in_planes=in_planes,
-                                    #   num_layers=num_layers_per_MSF_block,
                                       L=L,
                                       output_C=output_C_MSF)
         

@@ -31,6 +31,7 @@ for i in tqdm(range(L)):
 
 # xt = torch.clamp(x_t, 0.0, 1.0)
 images = [torch.clamp(torch.tensor(img), 0.0, 1.0) for img in images]
+
 # plot all images in a grid
 import matplotlib.pyplot as plt
 fig, axs = plt.subplots(2, 5, figsize=(15, 6))
@@ -41,9 +42,4 @@ for idx, ax in enumerate(axs.flatten()):
 plt.tight_layout()
 plt.show()
 
-# import matplotlib.pyplot as plt
-# plt.imshow(xt.squeeze().cpu().numpy(), cmap='gray')
-# plt.axis('off')
-# plt.title("Generated Image")
-# plt.show()
 

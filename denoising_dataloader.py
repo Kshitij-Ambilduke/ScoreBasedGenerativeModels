@@ -73,10 +73,6 @@ class MyCollate:
         pass
 
     def __call__(self, batch):
-        # print(len(batch))
-        # for i in range(len(batch)):
-        #     print(batch[i])
-        #     break
 
         original_images = torch.cat([batch[i]["original"] for i in range(len(batch))], dim=0)
         noisy_images = torch.cat([batch[i]["noisy"] for i in range(len(batch))], dim=0)
@@ -92,12 +88,12 @@ class MyCollate:
 
 
 # ---------------- Testing the dataloader ---------------- ##
-dataset = ScoreGenerationDataset(dataset_name="mnist", split="train", sigma_1=1.0, sigma_L=0.01, L=10, allowed_label_classes=[5,8])
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=MyCollate())
-batch = next(iter(dataloader))  
-print(batch["original"].shape)
-print(batch["noisy"].max(), batch["noisy"].min())
-print(batch["original"].max(), batch["original"].min())
+# dataset = ScoreGenerationDataset(dataset_name="mnist", split="train", sigma_1=1.0, sigma_L=0.01, L=10, allowed_label_classes=[5,8])
+# dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=MyCollate())
+# batch = next(iter(dataloader))  
+# print(batch["original"].shape)
+# print(batch["noisy"].max(), batch["noisy"].min())
+# print(batch["original"].max(), batch["original"].min())
 
 # ----------------- Plot the images --------------------- ##
 # import matplotlib.pyplot as plt

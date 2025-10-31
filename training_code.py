@@ -19,15 +19,6 @@ def load_data(allowed_classes=[1,2,3], split="train", sigma_1=1.0, sigma_L=0.01,
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=MyCollate())
     return dataloader
 
-def loss_function(model, perturbed_samples, used_sigmas, samples, labels, anneal_power=2.0):
-    target = - 1 / (used_sigmas ** 2) * (perturbed_samples - samples)
-    scores = model(perturbed_samples, labels)
-    target = target.view(target.shape[0], -1)
-    scores = scores.view(scores.shape[0], -1)
-    loss = 1 / 2. * ((scores - target) ** 2).sum(dim=-1) * used_sigmas.squeeze() ** anneal_power
-
-    return loss.mean(dim=0)
-
 def main():
     total_steps = 500
     dataloader = load_data()
@@ -52,9 +43,10 @@ def main():
 
             optimizer.zero_grad()
 
-            loss = loss_function(model=model, perturbed_samples=noisy, 
-                                 used_sigmas=sigmas_batch, samples=original, 
-                                 labels=sigma_index)        
+            scores = model(noisy, sigma_index)
+            loss = sigmas_batch*scores + (noisy - original)/(sigmas_batch)
+            loss = (loss**2).view(loss.shape[0], -1).sum(dim=-1).mean(dim=0)
+               
             loss.backward()
             optimizer.step()
 
