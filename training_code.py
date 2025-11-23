@@ -9,18 +9,19 @@ model = CondRefineNetDilated(input_channels=1, L=10, ngf=64)
 # TO DO: Write loss score matching loss
 # TO DO: Add training loop 
 
-def load_data(allowed_classes=[1,2,3], split="train", sigma_1=1.0, sigma_L=0.01, L=10, batch_size=32):
+def load_data(allowed_classes=[1,2,3], split="train", sigma_1=1.0, sigma_L=0.01, L=10, batch_size=32, schedule_type='geometric'):
     dataset = ScoreGenerationDataset(dataset_name="mnist", 
                                      split=split, 
                                      sigma_1=sigma_1, 
                                      sigma_L=sigma_L, 
                                      L=L, 
-                                     allowed_label_classes=allowed_classes)
+                                     allowed_label_classes=allowed_classes,
+                                     schedule_type=schedule_type)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=MyCollate())
     return dataloader
 
 def main():
-    total_steps = 500
+    total_steps = 100
     dataloader = load_data()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CondRefineNetDilated(input_channels=1, L=10, ngf=64)

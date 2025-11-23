@@ -4,6 +4,7 @@ from torchvision import transforms
 import pandas as pd
 import torch
 import random
+from noise_schedulers import get_sigma_scheduled
 
 # TO DO: Add sigma to the training sample. So the new sample will be (original_image, noisy_image, sigma_index)
 
@@ -23,14 +24,16 @@ class ScoreGenerationDataset(torch.utils.data.Dataset):
                  sigma_1=1.0,
                  sigma_L=0.01,
                  L=10,
-                 allowed_label_classes=None):
+                 allowed_label_classes=None,
+                 schedule_type="geometric"):
         
         super().__init__()
         self.dataset_name = dataset_name
 
-        r = (sigma_L / sigma_1)**(1/(L - 1))
-        sigmas = [sigma_1 * (r**i) for i in range(L)]
-
+        # r = (sigma_L / sigma_1)**(1/(L - 1))
+        # sigmas = [sigma_1 * (r**i) for i in range(L)]
+        sigmas = get_sigma_scheduled(sigma_1, sigma_L, L, schedule_type)
+        
         if self.dataset_name == "mnist":
             dataset_name = "ylecun/mnist"
             data_transforms = transforms.Compose(
