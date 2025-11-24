@@ -4,7 +4,7 @@ import math
 from tqdm import tqdm
 
 model = CondRefineNetDilated(input_channels=1, L=10, ngf=64)
-model.load_state_dict(torch.load("author_code/SAVED_MODEL_3_1.pt"))
+model.load_state_dict(torch.load("author_code/SAVED_MODEL_4_fmnist.pt"))
 model.eval()
 
 sigma_1 = 1.0
