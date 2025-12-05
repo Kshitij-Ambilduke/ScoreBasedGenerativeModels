@@ -4,16 +4,8 @@ from torchvision import transforms
 import pandas as pd
 import torch
 import random
-from sklearn.decomposition import PCA
-import numpy as np
-import joblib
 
 # TO DO: Add sigma to the training sample. So the new sample will be (original_image, noisy_image, sigma_index)
-
-def apply_pca(data, num_components):
-    pca = PCA(n_components=num_components)
-    reduced_data = pca.fit_transform(data)
-    return reduced_data, pca
 
 class MakeNoisySamples:
     def __init__(self, sigmas):
@@ -31,14 +23,9 @@ class ScoreGenerationDataset(torch.utils.data.Dataset):
                  sigma_1=1.0,
                  sigma_L=0.01,
                  L=10,
-                 allowed_label_classes=None,
-                 PCA_components=None,
-                 PCA_model_save_path=None):
+                 allowed_label_classes=None):
         
         super().__init__()
-        
-        assert np.sqrt(PCA_components).is_integer() or PCA_components is None, "PCA_components should be a perfect square."
-        
         self.dataset_name = dataset_name
 
         r = (sigma_L / sigma_1)**(1/(L - 1))
@@ -68,26 +55,24 @@ class ScoreGenerationDataset(torch.utils.data.Dataset):
         if allowed_label_classes:
             data = data[data["label"].isin(allowed_label_classes)]
 
+        labels = data["label"].tolist()
         data = data["image"].tolist()
-        if PCA_components is not None:
-            print("APPLYING PCA ...")
-            data = np.array([transforms.ToTensor()(img).numpy().flatten() for img in data])
-            reduced_data, pca_model = apply_pca(data, PCA_components)
-            joblib.dump(pca_model, PCA_model_save_path) # pca = joblib.load("pca_model.joblib") -- loading
-            
-            print(f"Reduced data shape: {reduced_data.shape}")
-            data = [reduced_data[i].reshape(int(PCA_components**0.5), int(PCA_components**0.5)) for i in range(reduced_data.shape[0])]
-            
+        
         images = [data_transforms(img) for img in data] # list of lists of tuples (original, noisy)
         
         # making a single list of tuples (original, noisy)
         # from list[list[(original, noisy)]]
+        self.label_list = []
         self.orig_noisy_pairs = []
         for i in range(len(images)):
             for j in range(len(images[i])):
                 self.orig_noisy_pairs.append(images[i][j])
+                self.label_list.append(labels[i])
 
-        random.shuffle(self.orig_noisy_pairs)
+        # random.shuffle(self.orig_noisy_pairs)
+        combined = list(zip(self.orig_noisy_pairs, self.label_list))
+        random.shuffle(combined)
+        self.orig_noisy_pairs[:], self.label_list[:] = zip(*combined)
     
     def __len__(self):
         return len(self.orig_noisy_pairs)
@@ -96,7 +81,8 @@ class ScoreGenerationDataset(torch.utils.data.Dataset):
         return {
             "original": self.orig_noisy_pairs[index][0],
             "noisy": self.orig_noisy_pairs[index][1],
-            "sigma_index": self.orig_noisy_pairs[index][2]
+            "sigma_index": self.orig_noisy_pairs[index][2],
+            "label": self.label_list[index]
         }
 
 class MyCollate:
@@ -112,45 +98,38 @@ class MyCollate:
         original_images = torch.cat([batch[i]["original"] for i in range(len(batch))], dim=0)
         noisy_images = torch.cat([batch[i]["noisy"] for i in range(len(batch))], dim=0)
         sigma_indices = torch.tensor([batch[i]["sigma_index"] for i in range(len(batch))])
+        labels = torch.tensor([batch[i]["label"] for i in range(len(batch))])
 
         return {
             "original": original_images.unsqueeze(1),
             "noisy": noisy_images.unsqueeze(1),
-            "sigma_index": sigma_indices
+            "sigma_index": sigma_indices,
+            "label": labels
         }     
 
-# # ---------------- Testing the dataloader ---------------- ##
-# dataset = ScoreGenerationDataset(dataset_name="mnist", 
-#                                  split="train", 
-#                                  sigma_1=1.0, sigma_L=0.01, L=10, 
-#                                  allowed_label_classes=[5,8],
-#                                  PCA_components=64,
-#                                  PCA_model_save_path="author_code/PCA/pca_model_mnist_64.joblib")
+
+# ---------------- Testing the dataloader ---------------- ##
+# dataset = ScoreGenerationDataset(dataset_name="mnist", split="train", sigma_1=1.0, sigma_L=0.01, L=10, allowed_label_classes=[5,8])
 # dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=MyCollate())
 # batch = next(iter(dataloader))  
 # print(batch["original"].shape)
 
 # # ----------------- Plot the images --------------------- ##
 # import matplotlib.pyplot as plt
-# pca = joblib.load("author_code/PCA/pca_model_mnist_64.joblib")
-# # converting back to original images for visualization
-# # for i in range(len(batch)):
-# #     batch["original"][i] = torch.tensor(pca.inverse_transform(batch["original"][i].squeeze().numpy().flatten())).reshape(28, 28)
-# #     batch["noisy"][i] = torch.tensor(pca.inverse_transform(batch["noisy"][i].squeeze().numpy().flatten())).reshape(28, 28)
 
 # fig, axs = plt.subplots(4, 8, figsize=(12, 6))
 # for i in range(4):
 #     for j in range(8):
-#         axs[i, j].imshow(pca.inverse_transform(batch["noisy"][i*8 + j].squeeze().numpy().flatten()).reshape(28,28), cmap='gray')
+#         axs[i, j].imshow(batch["noisy"][i*8 + j].squeeze(), cmap='gray')
 #         axs[i, j].axis('off')
-#         axs[i, j].set_title(f"σ_idx: {batch['sigma_index'][i*8 + j].item()}")
+#         axs[i, j].set_title(f"label: {batch['label'][i*8+j].item()}, σ_idx: {batch['sigma_index'][i*8 + j].item()}")
 
 # fig1, axs1 = plt.subplots(4, 8, figsize=(12, 6))
 
 # for i in range(4):
 #     for j in range(8):
-#         axs1[i, j].imshow(pca.inverse_transform(batch["original"][i*8 + j].squeeze().numpy().flatten()).reshape(28,28), cmap='gray')
+#         axs1[i, j].imshow(batch["original"][i*8 + j].squeeze(), cmap='gray')
 #         axs1[i, j].axis('off')
 #         axs1[i, j].set_title("Original")
 # plt.show()
-# # --------------------------------------------------------------- #
+# --------------------------------------------------------------- #
