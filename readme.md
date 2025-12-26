@@ -1,5 +1,8 @@
 # Score based generative modeling
 
+## Paper
+You can check our report [here](https://github.com/Kshitij-Ambilduke/ScoreBasedGenerativeModels/tree/main/docs).
+
 ## Dependency installation
 You can either create a new conda environment using the provided environment.yml file, or install the required packages in an existing environment.
 
